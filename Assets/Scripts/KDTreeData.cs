@@ -1,13 +1,11 @@
 ﻿using System;
 using Unity.Collections;
-using Unity.Mathematics;
 
 /// <summary>
 /// Initialize and Dispose the KDTree Data
 /// </summary>
-public struct CollisionTree : IDisposable
+public struct KDTreeData : IDisposable
 {
-    public KDTree Tree;
     public NativeArray<KDTree.Neighbour> Neighbours;
     public NativeReference<int> ResultsCount;
 
@@ -19,7 +17,6 @@ public struct CollisionTree : IDisposable
 
     public void Dispose()
     {
-        if (Tree.IsCreated) Tree.Dispose();
         if (Neighbours.IsCreated) Neighbours.Dispose();
         if (ResultsCount.IsCreated) ResultsCount.Dispose();
     }

@@ -4,7 +4,7 @@ using Unity.Mathematics;
 using UnityEngine.Jobs;
 
 [BurstCompile]
-public struct SpheresCollisionJob : IJobParallelForTransform
+public struct SpheresPositionJob : IJobParallelForTransform
 {
     [WriteOnly] public NativeArray<float3> Positions;
 

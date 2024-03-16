@@ -1,37 +1,50 @@
+using System.Collections.Generic;
 using UnityEngine;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
 using UnityEngine.Jobs;
+using Random = UnityEngine.Random;
 
 public class SpheresControllerWithCollision : SpheresController
 {
-    private NativeList<float3> _positions;
-    private CollisionTree _collisionTree;
+    private KDTree _kdTree;
+    private List<KDTreeData> _treeDataList;
+    private NativeList<float3> _spheresPositionList;
 
     protected override void Start()
     {
         base.Start();
 
-        _positions = new NativeList<float3>(Allocator.Persistent);
-        _collisionTree.Initialize(2);
+        _treeDataList = new List<KDTreeData>();
+        _spheresPositionList = new NativeList<float3>(Allocator.Persistent);
     }
 
     protected override void OnDestroy()
     {
         base.OnDestroy();
 
-        _positions.Dispose();
-        _collisionTree.Dispose();
+        if (_kdTree.IsCreated) _kdTree.Dispose();
+
+        for (var i = 0; i < _treeDataList.Count; i++)
+        {
+            _treeDataList[i].Dispose();
+        }
+
+        _spheresPositionList.Dispose();
     }
 
-    protected override void SpawnSpheres()
+    protected override void SpawnSpheres(int spawnCount)
     {
-        base.SpawnSpheres();
+        base.SpawnSpheres(spawnCount);
 
-        for (var i = 0; i < SpawnCount; i++)
+        for (var i = 0; i < spawnCount; i++)
         {
-            _positions.Add(_spheres[i].transform.position);
+            _spheresPositionList.Add(float3.zero);
+
+            var treeData = new KDTreeData();
+            treeData.Initialize(2);
+            _treeDataList.Add(treeData);
         }
 
         CreateTree(_spheres.Count);
@@ -43,62 +56,65 @@ public class SpheresControllerWithCollision : SpheresController
 
         var spheresMovementJob = new SpheresMovementJob
         {
-            Speed = 10,
+            Velocity = _spheresVelocityList.AsArray(),
             Radius = SPHERE_RADIUS,
             DeltaTime = Time.deltaTime,
+            Seed = (uint)(Random.value * uint.MaxValue),
             PlaygroundPosition = Playground.position,
             PlaygroundSize = PlaygroundSize
         };
 
-        var spheresCollisionJob = new SpheresCollisionJob()
+        var spheresPositionJob = new SpheresPositionJob()
         {
-            Positions = _positions.AsArray(),
+            Positions = _spheresPositionList.AsArray(),
         };
 
         var spheresMovementHandle = spheresMovementJob.Schedule(_transformAccessArray);
-        var spheresCollisionHandle = spheresCollisionJob.Schedule(_transformAccessArray, spheresMovementHandle);
+        var spheresPositionHandle = spheresPositionJob.Schedule(_transformAccessArray, spheresMovementHandle);
+        var updateTreeHandle = UpdateTreeData(spheresPositionHandle);
 
-        UpdateTreeData(spheresCollisionHandle);
+        var jobList = new NativeList<JobHandle>(Allocator.TempJob);
+        for (var i = 0; i < _spheres.Count; i++)
+        {
+            var treeResultsHandle = GetTreeResults(i, _spheres[i].transform.position, updateTreeHandle);
+            jobList.Add(treeResultsHandle);
+        }
+
+        JobHandle.CompleteAll(jobList.AsArray());
+        jobList.Dispose();
 
         for (var i = 0; i < _spheres.Count; i++)
         {
-            GetTreeResults(_spheres[i].transform.position);
-
-            _spheres[i].SetColliding(_collisionTree.ResultsCount.Value > 1);
+            _spheres[i].SetColliding(_treeDataList[i].ResultsCount.Value > 1);
         }
     }
 
     private void CreateTree(int treeCapacity)
     {
-        ref var tree = ref _collisionTree.Tree;
-        if (tree.IsCreated) tree.Dispose();
+        if (_kdTree.IsCreated) _kdTree.Dispose();
 
-        tree = new KDTree(treeCapacity, Allocator.Persistent);
+        _kdTree = new KDTree(treeCapacity, Allocator.Persistent);
     }
 
-    private JobHandle UpdateTreeData(JobHandle dependsOn = default(JobHandle))
+    private JobHandle UpdateTreeData(JobHandle dependsOn = default)
     {
-        ref var tree = ref _collisionTree.Tree;
-
-        var jobHandle = tree.BuildTree(_positions.AsArray(), dependsOn);
-        jobHandle.Complete();
+        var jobHandle = _kdTree.BuildTree(_spheresPositionList.AsArray(), dependsOn);
 
         return jobHandle;
     }
 
-    private JobHandle GetTreeResults(Vector3 queryPosition, JobHandle dependsOn = default(JobHandle))
+    private JobHandle GetTreeResults(int index, Vector3 queryPosition, JobHandle dependsOn = default)
     {
         var searchJob = new GetEntriesInRangeJob
         {
             QueryPosition = queryPosition,
             Range = SPHERE_RADIUS * 2f,
-            Tree = _collisionTree.Tree,
-            Neighbours = _collisionTree.Neighbours,
-            ResultsCount = _collisionTree.ResultsCount,
+            Tree = _kdTree,
+            Neighbours = _treeDataList[index].Neighbours,
+            ResultsCount = _treeDataList[index].ResultsCount,
         };
 
         var jobHandle = searchJob.Schedule(dependsOn);
-        jobHandle.Complete();
 
         return jobHandle;
     }

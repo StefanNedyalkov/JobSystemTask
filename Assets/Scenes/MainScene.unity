@@ -236,7 +236,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   SpherePrefab: {fileID: -1852952737397290663, guid: 61c46ebe2cda08244950cb1f888aa38b, type: 3}
-  SpawnCount: 10
+  SpawnCount: {x: 5, y: 10}
+  RandomSpeed: {x: 2, y: 20}
   Playground: {fileID: 124749109}
   PlaygroundSize: {x: 15, y: 10, z: 10}
 --- !u!4 &300753102
